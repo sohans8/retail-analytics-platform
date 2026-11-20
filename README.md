@@ -131,35 +131,35 @@ sales (1,017,209 rows):
 
 ```mermaid
 flowchart TD
-    subgraph Data_Sources["Data Sources (Kaggle / Local Storage)"]
-        CSV_Train["train.csv<br/>(1,017,209 Records)"]
-        CSV_Store["store.csv<br/>(1,115 Records)"]
+    subgraph Sources["Data Sources"]
+        CSV_Train["train.csv (1,017,209 Rows)"]
+        CSV_Store["store.csv (1,115 Rows)"]
     end
 
-    subgraph Ingestion_Layer["ETL Ingestion Engine (backend/etl/load_data.py)"]
-        Pandas_Chunk["Pandas Chunk Reader<br/>(100,000 Rows / Chunk)"]
-        Transform["Data Cleaning & Type Casting<br/>- Coerce Nullables to Int64<br/>- Cast Booleans (is_open, promo)<br/>- ISO-8601 Date Parsing"]
-        Buffer["In-Memory CSV Buffer<br/>(io.StringIO)"]
-        CopyStream["PostgreSQL COPY Protocol<br/>(cursor.copy_expert)"]
-        Validator["Data Integrity Gatekeeper<br/>- Row Counts (1,115 Stores, 1,017,209 Sales)<br/>- Zero Negative Sales<br/>- Zero Orphan Records"]
+    subgraph Ingestion["ETL Ingestion Engine"]
+        Pandas_Chunk["Pandas Chunk Reader (100k Batches)"]
+        Transform["Data Cleaning and Type Casting"]
+        Buffer["In-Memory Buffer (StringIO)"]
+        CopyStream["PostgreSQL COPY Protocol"]
+        Validator["Data Integrity Gatekeeper"]
     end
 
-    subgraph Storage_Layer["PostgreSQL Database (retail_analytics)"]
-        DB_Stores[("stores Table<br/>PK: store_id")]
-        DB_Sales[("sales Table<br/>PK: store_id, date<br/>FK: store_id")]
-        DB_Indexes["B-Tree Indexes<br/>idx_sales_date<br/>idx_sales_store<br/>idx_sales_promo"]
-        SQL_Views["Analytical Views<br/>vw_revenue_growth<br/>vw_promotion_lift<br/>vw_customer_spending<br/>vw_monthly_customer_traffic"]
+    subgraph Storage["PostgreSQL Database"]
+        DB_Stores[("stores Table")]
+        DB_Sales[("sales Table")]
+        DB_Indexes["B-Tree Indexes"]
+        SQL_Views["Analytical SQL Views"]
     end
 
-    subgraph Analytical_Engine["Analytics & BI Layer"]
-        EDA_Module["Exploratory Data Analysis<br/>(backend/analysis/eda.py)<br/>- Statistical CSVs<br/>- Matplotlib Visuals"]
-        Streamlit_App["Interactive Dashboard<br/>(backend/dashboard/app.py)<br/>- Parameterized SQL Queries<br/>- Plotly Express Charts<br/>- Filtered CSV Exporter"]
+    subgraph Engine["Analytics and BI Engine"]
+        EDA_Module["Exploratory Data Analysis Module"]
+        Streamlit_App["Interactive Streamlit Dashboard"]
     end
 
-    subgraph Stakeholders["End Users & Outputs"]
-        Reports["Offline Reports<br/>reports/eda/*.csv<br/>reports/eda/*.png"]
-        Web_UI["Executive Web UI<br/>http://localhost:8501"]
-        Export_CSV["Custom Cohort CSVs<br/>retail_sales_filtered.csv"]
+    subgraph Consumers["Stakeholders and Outputs"]
+        Reports["Offline Reports and Visuals"]
+        Web_UI["Executive Web UI Dashboard"]
+        Export_CSV["Custom Filtered CSV Export"]
     end
 
     CSV_Train --> Pandas_Chunk
@@ -263,31 +263,31 @@ The database design implements a 3rd Normal Form (3NF) relational star-like sche
 
 ```mermaid
 erDiagram
-    stores ||--o{ sales : "1-to-many (fk_sales_store)"
+    stores ||--o{ sales : has
 
     stores {
-        INTEGER store_id PK
-        VARCHAR store_type
-        VARCHAR assortment
-        DOUBLE_PRECISION competition_distance
-        INTEGER competition_open_since_month
-        INTEGER competition_open_since_year
-        BOOLEAN promo2
-        INTEGER promo2_since_week
-        INTEGER promo2_since_year
-        VARCHAR promo_interval
+        int store_id PK
+        string store_type
+        string assortment
+        float competition_distance
+        int competition_open_since_month
+        int competition_open_since_year
+        boolean promo2
+        int promo2_since_week
+        int promo2_since_year
+        string promo_interval
     }
 
     sales {
-        INTEGER store_id PK, FK
-        DATE date PK
-        SMALLINT day_of_week
-        INTEGER sales
-        INTEGER customers
-        BOOLEAN is_open
-        BOOLEAN promo
-        VARCHAR state_holiday
-        BOOLEAN school_holiday
+        int store_id FK
+        date date PK
+        int day_of_week
+        int sales
+        int customers
+        boolean is_open
+        boolean promo
+        string state_holiday
+        boolean school_holiday
     }
 ```
 
