@@ -1,0 +1,9 @@
+{
+    "R2": 0.957831778334711,
+    "MAE": 2158.5582925702424,
+    "RMSE": 3389.7112755019875,
+    "WAPE_Percent": 5.169573923778113,
+    "Validation_Records": 8920,
+    "Validation_Weeks": 8,
+    "Validation_Stores": 1115
+}

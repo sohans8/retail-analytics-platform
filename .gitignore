@@ -1,4 +1,13 @@
+
 .env
 .venv/
 __pycache__/
-dataset/*.csv
+*.py[cod]
+
+# Keep training data private, but include production forecasting data
+dataset/*
+!dataset/train.csv
+!dataset/store.csv
+
+# Generated files
+.ipynb_checkpoints/
