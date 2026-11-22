@@ -49,8 +49,12 @@ class ApiService {
       return await response.json();
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        const isLocal = this.baseUrl.includes('localhost') || this.baseUrl.includes('127.0.0.1');
+        const hint = isLocal
+          ? 'Please ensure the local backend server is running on port 8000.'
+          : 'The backend service may be spinning up from a cold start or temporarily unavailable.';
         const networkError = new Error(
-          `Unable to connect to FastAPI backend at ${this.baseUrl}. Please ensure the server is running on port 8000.`
+          `Unable to connect to FastAPI backend at ${this.baseUrl}. ${hint}`
         );
         networkError.status = 0;
         throw networkError;

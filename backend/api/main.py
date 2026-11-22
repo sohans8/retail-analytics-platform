@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Optional
 import json
+import logging
 import joblib
 import numpy as np
 import pandas as pd
@@ -10,6 +11,24 @@ import os
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+# ============================================================
+# LOGGING CONFIGURATION
+# ============================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("retail_api")
+
+
+def get_memory_mb():
+    try:
+        import psutil
+        return round(psutil.Process(os.getpid()).memory_info().rss / 1e6, 1)
+    except Exception:
+        return None
 
 
 # ============================================================
@@ -21,6 +40,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODEL_PATH = PROJECT_ROOT / "backend" / "models" / "xgboost_weekly_sales.joblib"
 METRICS_PATH = PROJECT_ROOT / "reports" / "forecasting" / "model_metrics.json"
 PREDICTIONS_PATH = PROJECT_ROOT / "reports" / "forecasting" / "validation_predictions.csv"
+PREPARED_CACHE_PATH = PROJECT_ROOT / "reports" / "forecasting" / "weekly_sales_prepared.csv.gz"
 
 # Dataset paths
 TRAIN_DATA_PATH = PROJECT_ROOT / "dataset" / "train.csv"
@@ -34,6 +54,7 @@ STORE_DATA_PATH = PROJECT_ROOT / "dataset" / "store.csv"
 if not MODEL_PATH.exists():
     raise FileNotFoundError(f"Trained model not found: {MODEL_PATH}")
 
+logger.info(f"Loading trained XGBoost model from {MODEL_PATH}...")
 artifact = joblib.load(MODEL_PATH)
 
 model = artifact["model"]
@@ -41,6 +62,8 @@ FEATURES = artifact["features"]
 
 CATEGORICAL_FEATURES = artifact["categorical_features"]
 NUMERIC_FEATURES = artifact["numeric_features"]
+
+logger.info(f"Model loaded successfully. Features count: {len(FEATURES)}. Current RSS: {get_memory_mb()} MB")
 
 
 # ============================================================
@@ -62,6 +85,7 @@ allowed_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:8501",
+    "https://retail-analytics-platform-phi.vercel.app",
 ]
 
 # Set FRONTEND_URL on Render.
@@ -85,7 +109,7 @@ app.add_middleware(
 
 
 # ============================================================
-# CACHED HISTORICAL DATA
+# CACHED HISTORICAL DATA (MEMORY OPTIMIZED)
 # ============================================================
 
 forecasting_data = None
@@ -93,28 +117,36 @@ forecasting_data = None
 
 def get_forecasting_data():
     """
-    Load and prepare historical data once per API process.
+    Load and cache historical forecasting data once per API process.
+    Prefers pre-aggregated weekly dataset (reports/forecasting/weekly_sales_prepared.csv.gz)
+    to avoid spiking memory above 512MB on Render.
+    Falls back to running memory-optimized prepare_forecasting_data if cache is missing.
     """
 
     global forecasting_data
 
     if forecasting_data is None:
+        logger.info(f"Initializing forecasting dataset (Current RSS: {get_memory_mb()} MB)...")
 
-        if not TRAIN_DATA_PATH.exists():
-            raise FileNotFoundError(
-                f"Training dataset not found: {TRAIN_DATA_PATH}"
+        if PREPARED_CACHE_PATH.exists():
+            logger.info(f"Loading pre-aggregated dataset from {PREPARED_CACHE_PATH}")
+            forecasting_data = pd.read_csv(PREPARED_CACHE_PATH, compression="gzip")
+        else:
+            if not TRAIN_DATA_PATH.exists():
+                raise FileNotFoundError(
+                    f"Training dataset not found: {TRAIN_DATA_PATH}"
+                )
+
+            if not STORE_DATA_PATH.exists():
+                raise FileNotFoundError(
+                    f"Store dataset not found: {STORE_DATA_PATH}"
+                )
+
+            from backend.forecasting.features import (
+                prepare_forecasting_data
             )
 
-        if not STORE_DATA_PATH.exists():
-            raise FileNotFoundError(
-                f"Store dataset not found: {STORE_DATA_PATH}"
-            )
-
-        from backend.forecasting.features import (
-            prepare_forecasting_data
-        )
-
-        forecasting_data = prepare_forecasting_data()
+            forecasting_data = prepare_forecasting_data(use_cache=True, save_cache=True)
 
         forecasting_data["Store"] = (
             forecasting_data["Store"].astype(str)
@@ -122,6 +154,11 @@ def get_forecasting_data():
 
         forecasting_data["WeekStart"] = pd.to_datetime(
             forecasting_data["WeekStart"]
+        )
+
+        logger.info(
+            f"Forecasting dataset ready: {len(forecasting_data):,} rows. "
+            f"RSS: {get_memory_mb()} MB"
         )
 
     return forecasting_data
@@ -177,6 +214,7 @@ def health_check():
         "status": "healthy",
         "model_loaded": model is not None,
         "model_name": "XGBoost Weekly Sales Forecasting",
+        "memory_rss_mb": get_memory_mb(),
         "forecast_horizon_weeks": artifact.get(
             "forecast_horizon_weeks"
         )
@@ -362,6 +400,10 @@ def forecast_weekly_sales(request: ForecastRequest):
         )
 
     try:
+        logger.info(
+            f"Forecasting request for Store {request.store_id} "
+            f"({request.horizon_weeks} weeks). Initial RSS: {get_memory_mb()} MB"
+        )
 
         data = get_forecasting_data()
 
@@ -514,6 +556,12 @@ def forecast_weekly_sales(request: ForecastRequest):
         total_forecast = sum(
             item["predicted_weekly_sales"]
             for item in predictions
+        )
+
+        logger.info(
+            f"Forecast completed for Store {request.store_id} "
+            f"({request.horizon_weeks} weeks, Total: {round(total_forecast, 2)}). "
+            f"Final RSS: {get_memory_mb()} MB"
         )
 
         return {
